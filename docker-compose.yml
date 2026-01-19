@@ -5,6 +5,7 @@ volumes:
   prowlarr_config:
   overseerr_config:
   deluge_config:
+  ygege_config:
 
 services:
   # Library explorer and content viewer
@@ -114,3 +115,17 @@ services:
     volumes:
       - deluge_config:/config
       - ./path/to/disk:/content
+
+  # Ygg search engine
+  ygege:
+    image: uwucode/ygege:latest
+    container_name: ygege
+    restart: unless-stopped
+    ports:
+      - 8715:8715
+    volumes:
+      - ygege_config:/config
+    environment:
+      YGG_USERNAME: "username"
+      YGG_PASSWORD: "password"
+      LOG_LEVEL: "debug"
