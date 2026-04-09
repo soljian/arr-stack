@@ -60,8 +60,8 @@ services:
       - 9696:9696
 
   # Request manager
-  overseerr:
-    image: lscr.io/linuxserver/overseerr:latest
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
     environment:
       - PUID=1000
       - PGID=1000
