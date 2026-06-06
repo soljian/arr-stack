@@ -1,0 +1,182 @@
+volumes:
+  deluge_config:
+  sonarr_config:
+  radarr_config:
+  prowlarr_config:
+  lidarr_config:
+  plex_config:
+  seerr_config:
+
+services:
+  # VPN + killswitch
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    restart: unless-stopped
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - TZ=Europe/Paris
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=PRIVATE_KEY
+      - WIREGUARD_ADDRESSES=10.2.0.2/32
+      - SERVER_COUNTRIES=France
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_PROVIDER=protonvpn
+    ports:
+      - 8112:8112
+      - 9696:9696
+
+  # Update deluge port (port forwarding)
+  deluge-port-sync:
+    image: alpine:latest
+    container_name: deluge-port-sync
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun: { condition: service_healthy }
+      deluge: { condition: service_started }
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        apk add --no-cache docker-cli >/dev/null
+        echo "deluge-port-sync started"
+        LAST_PORT=""
+        while true; do
+          PORT=$$(docker exec gluetun cat /tmp/gluetun/forwarded_port 2>/dev/null)
+          if [ -n "$$PORT" ] && [ "$$PORT" != "0" ] && [ "$$PORT" != "$$LAST_PORT" ]; then
+            echo "$$(date '+%Y-%m-%d %H:%M:%S') - Updating Deluge port: $$LAST_PORT -> $$PORT"
+            docker exec deluge deluge-console -c /config "config --set random_port False" >/dev/null 2>&1
+            docker exec deluge deluge-console -c /config "config --set listen_ports ($$PORT, $$PORT)" >/dev/null 2>&1
+            LAST_PORT=$$PORT
+          fi
+          sleep 60
+        done
+    restart: unless-stopped
+
+  # Torrent client
+  deluge:
+    image: lscr.io/linuxserver/deluge:2.1.1
+    restart: unless-stopped
+    container_name: deluge
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+      - DELUGE_LOGLEVEL=warn
+    volumes:
+      - deluge_config:/config
+      # Replace the left part of this line with the path to your medias
+      - ./medias:/media/data
+
+  # TV SHOWS
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    restart: unless-stopped
+    container_name: sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    volumes:
+      - sonarr_config:/config
+      # Replace the left part of this line with the path to your medias
+      - ./medias:/media/data
+    ports:
+      - 8989:8989
+
+  # MOVIES
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    restart: unless-stopped
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    volumes:
+      - radarr_config:/config
+      # Replace the left part of this line with the path to your medias
+      - ./medias:/media/data
+    ports:
+      - 7878:7878
+
+  # MUSICS
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    restart: unless-stopped
+    container_name: lidarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    volumes:
+      - lidarr_config:/config
+      # Replace the left part of this line with the path to your medias
+      - ./medias:/media/data
+    ports:
+      - 8686:8686
+
+  # Indexer
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    restart: unless-stopped
+    container_name: prowlarr
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    volumes:
+      - prowlarr_config:/config
+
+  # CATALOG
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    restart: unless-stopped
+    container_name: seerr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    volumes:
+      - seerr_config:/app/config
+    ports:
+      - 5055:5055
+
+  # Library explorer and content viewer
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    restart: unless-stopped
+    container_name: plex
+    # network_mode: host
+    ports:
+      - 32400:32400
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+      - VERSION=docker
+    volumes:
+      - plex_config:/config
+      # Replace the left part of this line with the path to your medias
+      - ./medias:/media/data
+    # Integrated GPUs (uncomment if needed)
+    # devices:
+    #   - /dev/dri:/dev/dri
+    # Nvidia GPUS (uncomment if needed)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
